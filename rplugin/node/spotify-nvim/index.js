@@ -4,13 +4,13 @@ const querystring = require('querystring')
 const request = require('request')
 const SpotifyWebApi = require('spotify-web-api-node')
 
-const { readFileSync, writeFileSync } = require('fs')
+const { writeFile, readFile } = require('fs')
 
 module.exports = plugin => {
   let spotifyApiInitialized = false
   let spotifyApi
 
-  const log = (message) => plugin.nvim.outWriteLine(message)
+  const log = (message) => plugin.nvim.outWriteLine(`[spotify.nvim]: ${message}`)
   const error = (message) => plugin.nvim.errWriteLine(message)
 
   const registerCommand = (commandName, func) => plugin.registerCommand(commandName, async () => {
@@ -46,14 +46,32 @@ module.exports = plugin => {
   let clientSecret
 
   let accessToken
+  let refreshToken
+  let tokenFile
 
-  // TODO(smolck): This is just for testing, and needs to be changed to
-  // (a) use the refresh token as well, and (b) read from a user-specified
-  // location? And maybe not write this to a text file?
-  try {
-    const text = readFileSync('./token.txt').toString()
-    if (text != '' || text != '\n') accessToken = text
-  } catch (_e) {}
+  const persistTokens = async () => {
+    const str = JSON.stringify({
+      accessToken,
+      refreshToken,
+    })
+
+    await writeFile(tokenFile, str, (err) => {
+      if (err) log(`Error writing Spotify tokens to ${tokenFile}: "${err}"`)
+    })
+  }
+
+  const tryReadTokens = () => {
+    readFile(tokenFile, (err, data) => {
+      if (err) {
+        log(`Token file does not exist at ${tokenFile}, will need to authenticate.`)
+        return
+      }
+
+      const tokenFileText = JSON.parse(data.toString())
+      accessToken = tokenFileText.accessToken
+      refreshToken = tokenFileText.refreshToken
+    })
+  }
 
   let app
   const setupExpressApp = () => {
@@ -104,10 +122,10 @@ module.exports = plugin => {
               refresh_token = body.refresh_token;
 
           accessToken = access_token
+          refreshToken = refresh_token
 
-          // TODO(smolck): See TODO from above (lines 50-52) regarding reading this file
-          writeFileSync('token.txt', accessToken)
-          log('wrote to token.txt and now have a token')
+          persistTokens()
+          // log('wrote to token.txt and now have a token')
 
           res.redirect('/#' + querystring.stringify({ success: 'it worked dude!' }))
 
@@ -122,12 +140,16 @@ module.exports = plugin => {
     app.listen(8888)
   }
 
-  plugin.registerFunction('SpotifyConfig', ({ client_id, client_secret }) => {
+  plugin.registerFunction('SpotifyConfig', ([{ client_id, client_secret, token_file }]) => {
     clientId = client_id
     clientSecret = client_secret
-  }, { sync: true })
 
-  plugin.registerCommand('SpotifyInit', async () => {
+    // TODO(smolck): Good default, or is there better?
+    tokenFile = token_file || (process.env.HOME ? process.env.HOME + '/.spotify_nvim_tokens.json' : '~/.spotify_nvim_tokens.json')
+    tryReadTokens()
+  }, { sync: false })
+
+  plugin.registerFunction('SpotifyInit', async () => {
     if (!accessToken) {
       log('Please visit http://localhost:8888 and authenticate, then call this command again')
       setupExpressApp()
@@ -135,22 +157,22 @@ module.exports = plugin => {
     }
     if (spotifyApiInitialized) return
 
-    log('Initializing Spotify plugin')
-
+    log('Initializing Spotify plugin!')
     try {
       spotifyApi = new SpotifyWebApi()
       spotifyApi.setAccessToken(accessToken)
+      spotifyApi.setRefreshToken(refreshToken)
       spotifyApiInitialized = true
       await app.close()
 
-      log('Spotify plugin initialized')
+      log('Spotify plugin initialized!')
     } catch (e) {
       // Don't care about error's with closing the express app, probably
       // (definitely?) means it wasn't ever created since the token file
       // existed.
       if (!e.contains('app')) log(`Error ocurred while initializing Spotify: "${e}".`)
     }
-  })
+  }, { sync: false })
 
   registerCommand('SpotifyNextTrack', async() => {
     log('Going to next track')
