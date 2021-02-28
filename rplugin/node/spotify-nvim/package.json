@@ -1,0 +1,19 @@
+{
+  "name": "spotify-nvim",
+  "version": "0.1.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "smolck",
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.17.1",
+    "querystring": "^0.2.1",
+    "request": "^2.88.2",
+    "spotify-web-api-js": "^1.5.1",
+    "spotify-web-api-node": "^5.0.2"
+  }
+}
