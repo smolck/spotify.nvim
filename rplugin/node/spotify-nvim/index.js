@@ -140,13 +140,14 @@ module.exports = plugin => {
     app.listen(8888)
   }
 
-  plugin.registerFunction('SpotifyConfig', ([{ client_id, client_secret, token_file }]) => {
+  plugin.registerFunction('SpotifyConfig', ([{ client_id, client_secret, token_file, init_afterwards }]) => {
     clientId = client_id
     clientSecret = client_secret
 
     // TODO(smolck): Good default, or is there better?
     tokenFile = token_file || (process.env.HOME ? process.env.HOME + '/.spotify_nvim_tokens.json' : '~/.spotify_nvim_tokens.json')
     tryReadTokens()
+    if (init_afterwards) plugin.nvim.call('SpotifyInit')
   }, { sync: false })
 
   plugin.registerFunction('SpotifyInit', async () => {
