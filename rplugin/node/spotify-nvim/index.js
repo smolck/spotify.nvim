@@ -10,23 +10,47 @@ module.exports = plugin => {
   let spotifyApiInitialized = false
   let spotifyApi
 
+  let clientId
+  let clientSecret
+
+  let accessToken
+  let refreshToken
+  let tokenFile
+
+  let app
+
   const log = (message) => plugin.nvim.outWriteLine(`[spotify.nvim]: ${message}`)
-  const error = (message) => plugin.nvim.errWriteLine(message)
+  const error = (message) => plugin.nvim.errWriteLine(`[spotify.nvim]: ${message}`)
+
+  const initializeSpotify = async () => {
+    if (spotifyApiInitialized) return
+    if (!accessToken) await setupAndRunExpressApp()
+
+    try {
+      spotifyApi = new SpotifyWebApi()
+      spotifyApi.setAccessToken(accessToken)
+      spotifyApi.setRefreshToken(refreshToken)
+      spotifyApiInitialized = true
+      log('Spotify plugin initialized!')
+    } catch (e) {
+      log(`Error ocurred while initializing Spotify: "${e}".`)
+    }
+  }
 
   const registerCommand = (commandName, func) => plugin.registerCommand(commandName, async () => {
     if (!spotifyApiInitialized) {
-      log('Need to initialize Spotify with :SpotifyInit')
-      return
+      log('Need to initialize Spotify with SpotifyInit(), doing that now')
+      await initializeSpotify()
+      await func()
     }
     await func()
   })
 
   const registerSyncFunc = (funcName, func) => plugin.registerFunction(funcName, async (...args) => {
     if (!spotifyApiInitialized) {
-      log('Need to initialize Spotify with :SpotifyInit')
-      // TODO(smolck): Return undefined instead? Still need to read up on
-      // undefined vs. null in JS . . .
-      return null
+      log('Need to initialize Spotify with SpotifyInit(), doing that now')
+      await initializeSpotify()
+      return await func.apply(null, ...args)
     }
     return await func.apply(null, ...args)
   }, { sync: true })
@@ -34,20 +58,12 @@ module.exports = plugin => {
 
   const registerAsyncFunc = (funcName, func) => plugin.registerFunction(funcName, async (...args) => {
     if (!spotifyApiInitialized) {
-      log('Need to initialize Spotify with :SpotifyInit')
-      // TODO(smolck): Return undefined instead? Still need to read up on
-      // undefined vs. null in JS . . .
-      return null
+      log('Need to initialize Spotify with SpotifyInit(), doing that now')
+      await initializeSpotify()
+      return await func.apply(null, ...args)
     }
     return await func.apply(null, ...args)
   }, { sync: false })
-
-  let clientId
-  let clientSecret
-
-  let accessToken
-  let refreshToken
-  let tokenFile
 
   const persistTokens = async () => {
     const str = JSON.stringify({
@@ -73,106 +89,91 @@ module.exports = plugin => {
     })
   }
 
-  let app
-  const setupExpressApp = () => {
-    if (accessToken) return
-    if (!clientId || !clientSecret) {
-      log('You need to call `SpotifyConfig` with your client_id and client_secret!')
-      // TODO(smolck): return or no?
-      return
-    }
+  function setupAndRunExpressApp() {
+    return new Promise((resolve, reject) => {
+      if (accessToken) reject('access token already gotten, don\'t think this should happen')
+      if (!clientId || !clientSecret) {
+        log('You need to call `SpotifyConfig` with your client_id and client_secret!')
+        // TODO(smolck): return or no?
+        reject('No client id or client secret')
+      }
 
-    app = express()
-    app
-      .use(express.static(__dirname + '/public'))
-      // .use(cors())
+      app = express()
+      app
+        .use(express.static(__dirname + '/public'))
+        // .use(cors())
 
-    app.get('/login', (req, res) => {
-      // your application requests authorization
-      const scope = [
-        'user-modify-playback-state',
-      ].join(' ');
-      res.redirect('https://accounts.spotify.com/authorize?' +
-        querystring.stringify({
-        response_type: 'code',
-        client_id: clientId,
-        scope: scope,
-        redirect_uri: 'http://localhost:8888/callback',
-      }))
-    })
+      app.get('/login', (req, res) => {
+        // your application requests authorization
+        const scope = [
+          'user-modify-playback-state',
+        ].join(' ');
+        res.redirect('https://accounts.spotify.com/authorize?' +
+          querystring.stringify({
+          response_type: 'code',
+          client_id: clientId,
+          scope: scope,
+          redirect_uri: 'http://localhost:8888/callback',
+        }))
+      })
 
-    app.get('/callback', (req, res) => {
-        const authOptions = {
-          url: 'https://accounts.spotify.com/api/token',
-          form: {
-            code: req.query.code,
-            redirect_uri: 'http://localhost:8888/callback',
-            grant_type: 'authorization_code'
-          },
-          headers: {
-            'Authorization': 'Basic ' + (new Buffer(clientId + ':' + clientSecret).toString('base64'))
-          },
-          json: true
-        }
-
-        request.post(authOptions, (error, response, body) => {
-          if (!error && response.statusCode === 200) {
-
-          const access_token = body.access_token,
-              refresh_token = body.refresh_token;
-
-          accessToken = access_token
-          refreshToken = refresh_token
-
-          persistTokens()
-          // log('wrote to token.txt and now have a token')
-
-          res.redirect('/#' + querystring.stringify({ success: 'it worked dude!' }))
-
-          } else {
-            res.redirect('/#' +
-              querystring.stringify({
-                error: 'invalid_token'
-              }))
+      app.get('/callback', (req, res) => {
+          const authOptions = {
+            url: 'https://accounts.spotify.com/api/token',
+            form: {
+              code: req.query.code,
+              redirect_uri: 'http://localhost:8888/callback',
+              grant_type: 'authorization_code'
+            },
+            headers: {
+              'Authorization': 'Basic ' + (new Buffer(clientId + ':' + clientSecret).toString('base64'))
+            },
+            json: true
           }
-        })
-    })
-    app.listen(8888)
+
+          request.post(authOptions, (error, response, body) => {
+            if (!error && response.statusCode === 200) {
+
+            const access_token = body.access_token,
+                refresh_token = body.refresh_token;
+
+            accessToken = access_token
+            refreshToken = refresh_token
+
+            resolve('initialized')
+            persistTokens()
+
+            res.redirect('/#' + querystring.stringify({ success: 'you now have a token!' }))
+
+            } else {
+              res.redirect('/#' +
+                querystring.stringify({
+                  error: 'invalid_token'
+                }))
+            }
+          })
+      })
+      app.listen(8888)
+    }).then((_) => app.close())
   }
 
-  plugin.registerFunction('SpotifyConfig', ([{ client_id, client_secret, token_file, init_afterwards }]) => {
+  plugin.registerFunction('SpotifyConfig', ([{ client_id, client_secret, token_file }]) => {
     clientId = client_id
     clientSecret = client_secret
 
     // TODO(smolck): Good default, or is there better?
     tokenFile = token_file || (process.env.HOME ? process.env.HOME + '/.spotify_nvim_tokens.json' : '~/.spotify_nvim_tokens.json')
     tryReadTokens()
-    if (init_afterwards) plugin.nvim.call('SpotifyInit')
   }, { sync: false })
 
   plugin.registerFunction('SpotifyInit', async () => {
     if (!accessToken) {
-      log('Please visit http://localhost:8888 and authenticate, then call this command again')
+      log('Please visit http://localhost:8888 and authenticate')
       setupExpressApp()
       return
     }
     if (spotifyApiInitialized) return
-
-    log('Initializing Spotify plugin!')
-    try {
-      spotifyApi = new SpotifyWebApi()
-      spotifyApi.setAccessToken(accessToken)
-      spotifyApi.setRefreshToken(refreshToken)
-      spotifyApiInitialized = true
-      await app.close()
-
-      log('Spotify plugin initialized!')
-    } catch (e) {
-      // Don't care about error's with closing the express app, probably
-      // (definitely?) means it wasn't ever created since the token file
-      // existed.
-      if (!e.contains('app')) log(`Error ocurred while initializing Spotify: "${e}".`)
-    }
+    await initializeSpotify()
   }, { sync: false })
 
   registerCommand('SpotifyNextTrack', async() => {
