@@ -1,87 +1,45 @@
-local previewers = require'telescope.previewers'
-local conf = require('telescope.config').values
-local pickers = require'telescope.pickers'
-local finders = require'telescope.finders'
+local spotify = {}
 
-local action_set = require('telescope.actions.set')
-local action_state = require('telescope.actions.state')
-local actions = require('telescope.actions')
+-- See https://github.com/tjdevries/rofl.nvim/blob/632c10f2ec7c56882a3f7eda8849904bcac6e8af/lua/rofl.lua
+local binary_path = vim.fn.fnamemodify(
+  api.nvim_get_runtime_file("lua/spotify.lua", false)[1], ":h:h")
+  .. "/target/debug/spotify-nvim"
 
-local M = {}
-
-function M.select_song(opts)
-  opts = opts or {}
-
-  local function create_finder(artist, track)
-    if (artist == nil or artist == '') and (track == nil or track == '') then
-      return finders.new_table {}
-    end
-
-    local tracks = vim.fn.SpotifySearchTracks({
-      artist = artist,
-      track = track
-    })
-
-    return finders.new_table {
-      results = tracks,
-      entry_maker = function(track)
-        return {
-          value = track.uri,
-          display = track.name,
-          ordinal = track.name
-        }
-      end
-    }
-  end
-
-  local timer = vim.loop.new_timer()
-  local first = true
-  local refresh = true
-
-  local x = pickers.new(opts, {
-    prompt_title = 'Spotify',
-    finder = finders.new_table {},
-    on_input_filter_cb = function(query_text)
-      local refresh_copy = refresh
-      if first then
-        timer:start(500, 500, function() refresh = true end)
-      else
-        timer:again()
-      end
-      refresh = false
-      -- timer:close()
-
-      local artist
-      local track
-      if refresh_copy then
-        local split = vim.split(query_text, ',')
-        artist = split[1]
-        track = split[2]
-      end
-
-      return {
-        prompt = query_text,
-        updated_finder = refresh_copy and create_finder(artist, track) or nil
-      }
-    end,
-    sorter = conf.generic_sorter{},
-    attach_mappings = function(prompt_bufnr)
-      actions.select_default:replace(function()
-        local entry = action_state:get_selected_entry()
-        vim.fn.SpotifyPlay(entry.value)
-
-        actions.close(prompt_bufnr)
-      end)
-
-      actions.close:enhance {
-        post = function()
-          timer:close()
-        end
-      }
-
-      return true
-    end
-  }):find()
+if vim.fn.executable(binary_path) == 0 then
+  binary_path = vim.fn.fnamemodify(
+    api.nvim_get_runtime_file("lua/rofl.lua", false)[1], ":h:h")
+    .. "/target/release/spotify-nvim"
 end
 
-return M
+function spotify.request(method, ...)
+  spotify.start()
+  return vim.rpcrequest(spotify.job_id, method, ...)
+end
+
+function spotify.notify(method, ...)
+  spotify.start()
+  vim.rpcnotify(spotify.job_id, method, ...)
+end
+
+function spotify.play_track(track_uri)
+  spotify.notify("play_track", track_uri)
+end
+
+function spotify.search_tracks(search)
+  return spotify.request("search_tracks", search)
+end
+
+local os = require'os'
+function spotify.config()
+  spotify.notify("config", {
+    client_id = os.getenv('SPO_CL_ID'),
+    client_secret = os.getenv('SPO_CL_SEC'),
+  })
+end
+
+function spotify.start()
+  if spotify.job_id ~= nil then return end
+  spotify.job_id = vim.fn.jobstart({ binary_path }, { rpc = true })
+end
+
+return spotify
