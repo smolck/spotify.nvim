@@ -51,7 +51,6 @@ function M.select_song(opts)
         timer:again()
       end
       refresh = false
-      -- timer:close()
 
       local artist
       local track
