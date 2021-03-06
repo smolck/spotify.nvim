@@ -7,6 +7,8 @@ local action_set = require('telescope.actions.set')
 local action_state = require('telescope.actions.state')
 local actions = require('telescope.actions')
 
+local spotify = require'spotify'
+
 local M = {}
 
 function M.select_song(opts)
@@ -17,7 +19,7 @@ function M.select_song(opts)
       return finders.new_table {}
     end
 
-    local tracks = vim.fn.SpotifySearchTracks({
+    local tracks = spotify.search_tracks({
       artist = artist,
       track = track
     })
@@ -68,7 +70,7 @@ function M.select_song(opts)
     attach_mappings = function(prompt_bufnr)
       actions.select_default:replace(function()
         local entry = action_state:get_selected_entry()
-        vim.fn.SpotifyPlay(entry.value)
+        spotify.play_track(entry.value)
 
         actions.close(prompt_bufnr)
       end)

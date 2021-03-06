@@ -252,34 +252,26 @@ impl Handler for NeovimHandler {
                                 _ => {}
                             }
                         }
-                        neovim
-                            .out_write(&format!("Query string: {}\n", query))
-                            .await
-                            .unwrap();
 
                         match x.search(&query, SearchType::Track, 50, 0, None, None).await {
                             Ok(resp) => match resp {
                                 SearchResult::Tracks(Page { items, .. }) => {
-                                    let xs = Value::from(
-                                        items
-                                            .iter()
-                                            .map(|x| {
-                                                Value::from(vec![
-                                                    (
-                                                        Value::from("name".to_owned()),
-                                                        Value::from(x.name.clone()),
-                                                    ),
-                                                    (
-                                                        Value::from("uri".to_owned()),
-                                                        Value::from(x.uri.clone()),
-                                                    ),
-                                                ])
-                                            })
-                                            .collect::<Vec<Value>>(),
-                                    );
-
+                                    Ok(items
+                                        .iter()
+                                        .map(|x| {
+                                            Value::from(vec![
+                                                (
+                                                    Value::from("name".to_owned()),
+                                                    Value::from(x.name.clone()),
+                                                ),
+                                                (
+                                                    Value::from("uri".to_owned()),
+                                                    Value::from(x.uri.clone()),
+                                                ),
+                                            ])
+                                        })
+                                        .collect::<Value>())
                                     // neovim.out_write(&format!("{:?}\n", xs)).await.unwrap();
-                                    Ok(xs)
                                 }
                                 _ => Err(Value::from(String::from(
                                     "[spotify-nvim]: Couldn't get things!",
