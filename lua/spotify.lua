@@ -29,12 +29,9 @@ function spotify.search_tracks(search)
   return spotify.request("search_tracks", search)
 end
 
-local os = require'os'
-function spotify.config()
-  spotify.notify("config", {
-    client_id = os.getenv('SPO_CL_ID'),
-    client_secret = os.getenv('SPO_CL_SEC'),
-  })
+-- TODO(smolck): Docs
+function spotify.config(conf)
+  spotify.notify("config", conf)
 end
 
 function spotify.start()
